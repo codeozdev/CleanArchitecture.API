@@ -2,7 +2,7 @@
 
 namespace App.Domain.Entities
 {
-    public class Product : BaseEntity
+    public class Product : BaseEntity, IAuditEntity
     {
         public string Name { get; set; }
         public decimal Price { get; set; }
@@ -11,5 +11,7 @@ namespace App.Domain.Entities
         // Navigation Property
         public int CategoryId { get; set; } // Foreign Key
         public Category Category { get; set; } = null!;
+        public DateTime Created { get; set; }
+        public DateTime? Updated { get; set; }
     }
 }

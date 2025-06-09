@@ -1,5 +1,6 @@
 ﻿using App.Application.Contracts.Persistence;
 using App.Persistence.Categories;
+using App.Persistence.Interceptors;
 using App.Persistence.Products;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -14,6 +15,7 @@ public static class RepositoryExtensions
         services.AddDbContext<AppDbContext>(options =>
         {
             options.UseSqlServer(configuration.GetConnectionString("DefaultConnection"));
+            options.AddInterceptors(new AuditDbContextInterceptor());
         });
 
         services.AddScoped(typeof(IGenericRepository<>), typeof(GenericRepository<>));
