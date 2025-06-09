@@ -15,7 +15,6 @@ builder.Services.AddControllers(options =>
     options.SuppressImplicitRequiredAttributeForNonNullableReferenceTypes = true; // Suppress implicit required attribute for non-nullable reference types
 });
 
-builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
@@ -23,9 +22,13 @@ builder.Services.AddOpenApi();
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
     ConnectionMultiplexer.Connect("localhost:6379")
 );
-
-builder.Services.AddRepositories(builder.Configuration).AddServices(builder.Configuration);
 builder.Services.AddSingleton<IRedisCacheService, RedisCacheService>();
+
+// Application Services
+builder.Services.AddRepositories(builder.Configuration).AddServices(builder.Configuration);
+
+
+// Filters
 builder.Services.AddScoped(typeof(IdCheckFilter<>));
 builder.Services.AddScoped(typeof(NameCheckFilter<>));
 
