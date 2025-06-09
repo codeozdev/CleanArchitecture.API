@@ -1,7 +1,10 @@
 using App.API.Filters;
+using App.Application.Contracts.Caching;
 using App.Application.Extensions;
+using App.Caching;
 using App.Persistence.Extensions;
 using Scalar.AspNetCore;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,7 +20,12 @@ builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
 
+builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+    ConnectionMultiplexer.Connect("localhost:6379")
+);
+
 builder.Services.AddRepositories(builder.Configuration).AddServices(builder.Configuration);
+builder.Services.AddSingleton<IRedisCacheService, RedisCacheService>();
 builder.Services.AddScoped(typeof(IdCheckFilter<>));
 builder.Services.AddScoped(typeof(NameCheckFilter<>));
 

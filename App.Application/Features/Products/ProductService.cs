@@ -1,4 +1,5 @@
-﻿using App.Application.Contracts.Persistence;
+﻿using App.Application.Contracts.Caching;
+using App.Application.Contracts.Persistence;
 using App.Application.Features.Products.Create;
 using App.Application.Features.Products.Response;
 using App.Application.Features.Products.Update;
@@ -9,20 +10,36 @@ using System.Net;
 
 namespace App.Application.Features.Products;
 
-public class ProductService(IProductRepository productRepository, IUnitOfWork unitOfWork, IMapper mapper) : IProductService
+public class ProductService(IProductRepository productRepository, IUnitOfWork unitOfWork, IMapper mapper, IRedisCacheService redisCacheService) : IProductService
 {
     public async Task<ServiceResult<List<ProductResponse>>> GetAllListAsync()
     {
-        var products = await productRepository.GetAllListAsync();
-        var productsAsDto = mapper.Map<List<ProductResponse>>(products);
-        return ServiceResult<List<ProductResponse>>.Success(productsAsDto);
+        var cacheKey = CacheKeys.ProductsAll;
+        var products = await redisCacheService.GetOrAddAsync(cacheKey, async () =>
+        {
+            var productsFromDb = await productRepository.GetAllListAsync();
+            return mapper.Map<List<ProductResponse>>(productsFromDb);
+        }, CacheDurations.Medium);
+
+        return ServiceResult<List<ProductResponse>>.Success(products);
     }
 
     public async Task<ServiceResult<ProductResponse?>> GetByIdAsync(int id)
     {
-        var product = await productRepository.GetByIdAsync(id);
-        var productAsDto = mapper.Map<ProductResponse?>(product);
-        return ServiceResult<ProductResponse?>.Success(productAsDto);
+        var cacheKey = CacheKeys.Product(id);
+        var product = await redisCacheService.GetOrAddAsync(
+            cacheKey,
+            async () =>
+            {
+                var dbProduct = await productRepository.GetByIdAsync(id);
+                return mapper.Map<ProductResponse>(dbProduct);
+            },
+            CacheDurations.Long
+        );
+
+        return product != null
+            ? ServiceResult<ProductResponse?>.Success(product)
+            : ServiceResult<ProductResponse?>.Fail("Not found", HttpStatusCode.NotFound);
     }
 
     public async Task<ServiceResult<CreateProductResponse>> CreateAsync(CreateProductRequest request)
@@ -30,6 +47,13 @@ public class ProductService(IProductRepository productRepository, IUnitOfWork un
         var product = mapper.Map<Product>(request);
         await productRepository.AddAsync(product);
         await unitOfWork.SaveChangesAsync();
+
+        await redisCacheService.RemoveAsync(CacheKeys.ProductsAll);
+        await redisCacheService.RemoveAsync(CacheKeys.CategoriesWithProductsAll);
+        if (product.CategoryId > 0)
+        {
+            await redisCacheService.RemoveAsync(CacheKeys.CategoryWithProducts(product.CategoryId));
+        }
         return ServiceResult<CreateProductResponse>.SuccessAsCreated(new CreateProductResponse(product.Id), $"/api/products/{product.Id}");
     }
 
@@ -39,6 +63,14 @@ public class ProductService(IProductRepository productRepository, IUnitOfWork un
         product.Id = id;
         productRepository.Update(product!);
         await unitOfWork.SaveChangesAsync();
+
+        await redisCacheService.RemoveAsync(CacheKeys.ProductsAll);
+        await redisCacheService.RemoveAsync(CacheKeys.Product(id));
+        await redisCacheService.RemoveAsync(CacheKeys.CategoriesWithProductsAll);
+        if (product.CategoryId > 0)
+        {
+            await redisCacheService.RemoveAsync(CacheKeys.CategoryWithProducts(product.CategoryId));
+        }
         return ServiceResult.Success(HttpStatusCode.NoContent);
     }
 
@@ -48,6 +80,9 @@ public class ProductService(IProductRepository productRepository, IUnitOfWork un
         product!.Stock = request.Stock;
         productRepository.Update(product);
         await unitOfWork.SaveChangesAsync();
+
+        await redisCacheService.RemoveAsync(CacheKeys.ProductsAll);
+        await redisCacheService.RemoveAsync(CacheKeys.Product(id));
         return ServiceResult.Success(HttpStatusCode.NoContent);
     }
 
@@ -56,20 +91,40 @@ public class ProductService(IProductRepository productRepository, IUnitOfWork un
         var product = await productRepository.GetByIdAsync(id);
         productRepository.Delete(product!);
         await unitOfWork.SaveChangesAsync();
+
+        await redisCacheService.RemoveAsync(CacheKeys.ProductsAll);
+        await redisCacheService.RemoveAsync(CacheKeys.Product(id));
+        await redisCacheService.RemoveAsync(CacheKeys.CategoriesWithProductsAll);
+        if (product is { CategoryId: > 0 })
+        {
+            await redisCacheService.RemoveAsync(CacheKeys.CategoryWithProducts(product.CategoryId));
+        }
         return ServiceResult.Success(HttpStatusCode.NoContent);
     }
 
     public async Task<ServiceResult<List<ProductResponse>>> GetPagedAllAsync(int pageNumber, int pageSize)
     {
-        var products = await productRepository.GetAllPagedAsync(pageNumber, pageSize);
-        var productsDto = mapper.Map<List<ProductResponse>>(products);
-        return ServiceResult<List<ProductResponse>>.Success(productsDto);
+        var cacheKey = CacheKeys.ProductsPage(pageNumber, pageSize);
+
+        var products = await redisCacheService.GetOrAddAsync(cacheKey, async () =>
+        {
+            var productsFromDb = await productRepository.GetAllPagedAsync(pageNumber, pageSize);
+            return mapper.Map<List<ProductResponse>>(productsFromDb);
+        }, CacheDurations.Short);
+
+        return ServiceResult<List<ProductResponse>>.Success(products);
     }
 
     public async Task<ServiceResult<List<ProductResponse>>> GetTopPriceProductsAsync(int count)
     {
-        var products = await productRepository.GetTopPriceProductsAsync(count);
-        var productsAsDto = mapper.Map<List<ProductResponse>>(products);
-        return ServiceResult<List<ProductResponse>>.Success(productsAsDto);
+        var cacheKey = CacheKeys.ProductsTopPrice(count);
+
+        var products = await redisCacheService.GetOrAddAsync(cacheKey, async () =>
+        {
+            var productsFromDb = await productRepository.GetTopPriceProductsAsync(count);
+            return mapper.Map<List<ProductResponse>>(productsFromDb);
+        }, CacheDurations.Short);
+
+        return ServiceResult<List<ProductResponse>>.Success(products);
     }
 }
